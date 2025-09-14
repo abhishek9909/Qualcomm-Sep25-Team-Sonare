@@ -51,7 +51,7 @@ This project demonstrates a complete **offline sign language translation system*
 
 - **`src/ui/`** - Electron + React frontend with camera capture and gesture recognition
 - **`src/server/`** - FastAPI backend for keypoint processing and queue management
-- **`src/speech_to_sign/`** - Speech-to-sign pipeline with whisper.cpp integration and it also contains the dataset.
+- **`src/speech_to_sign/`** - Speech-to-sign pipeline with whisper.cpp integration
 - **`src/Video_Sampling/`** - Sign language video dataset and processing utilities
 
 ---
@@ -70,7 +70,7 @@ This project demonstrates a complete **offline sign language translation system*
 1. **Clone and setup Python environment:**
 
 ```bash
-git clone https://github.com/abhishek9909/Qualcomm-Sep25-Team-Sonare.git
+git clone <repository-url>
 cd Qualcomm-Sep25-Team-Sonare
 
 # Install uv if not already installed
@@ -93,8 +93,8 @@ npm install
 3. **Download required models:**
 
 ```bash
-MediaPipe hand landmarker model (place in src/ui/public/assets/mediapipe/)
-whisper.cpp model (place in src/speech_to_sign/whisper.cpp/models/)
+# MediaPipe hand landmarker model (place in src/ui/public/assets/mediapipe/)
+# whisper.cpp model (place in src/speech_to_sign/whisper.cpp/models/)
 ```
 
 ### Running the Application
@@ -141,13 +141,18 @@ Qualcomm-Sep25-Team-Sonare/
 │   │   └── justfile               # Development commands
 │   │
 │   ├── speech_to_sign/             # Speech-to-Sign Pipeline
-│       ├── run_all.sh             # Main pipeline script
-│       ├── clean_transcript.py    # Text preprocessing
-│       ├── glossify_transcript.py # Text-to-gloss mapping
-│       ├── stream_queue_assets.py # Video queue management
-│       ├── lexicons.json          # Sign language vocabulary
-│       ├── videos/                # Sign language video assets
-│       └── whisper.cpp/           # whisper.cpp integration
+│   │   ├── run_all.sh             # Main pipeline script
+│   │   ├── clean_transcript.py    # Text preprocessing
+│   │   ├── glossify_transcript.py # Text-to-gloss mapping
+│   │   ├── stream_queue_assets.py # Video queue management
+│   │   ├── lexicons.json          # Sign language vocabulary
+│   │   ├── videos/                # Sign language video assets
+│   │   └── whisper.cpp/           # whisper.cpp integration
+│   │
+│   └── Video_Sampling/             # Dataset & Utilities
+│       ├── words_to_visual.py     # Video sampling script
+│       ├── sign_videos/           # Sample sign videos
+│       └── *.json                 # Dataset files
 │
 ├── code_samples/                   # Development notes & examples
 ├── pyproject.toml                 # Python dependencies
@@ -375,11 +380,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Qualcomm Hackathon September 2025 - Team Sonare**
 
-- **Armaan Sandhu**
-- **Archana Yadav**
-- **Abhishek Mishra**
-- **Sagnik Chatterjee**
-- **Deva Anand**
+- **Armaan Sandhu** (apsandhu@umass.edu)
+- **Archana Yadav** (archanayadav@umass.edu)
+- **Abhishek Mishra** (abhishekmish@umass.edu)
+- **Sagnik Chatterjee** (sagnikchatte@umass.edu)
+- **Deva Anand** (devaanad@umass.edu)
 
 ---
 
@@ -408,3 +413,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Built with ❤️ for the Qualcomm Hackathon September 2025**
+
+## To run the pipeline in the demo:
+
+- [ ] **npm run package** - creates an installer which for the app.
+- [ ] **python inference_basic.py** - command to run the lemmatization and word-mapping and video-sticthing server, running completely on local.
+- [ ] **python inference_whisper.py** - command to run the whisper model on local.
