@@ -1,0 +1,22 @@
+{
+  "model":"./whisper.cpp/models/ggml-tiny.en.bin",
+  "whisper":"./whisper.cpp/build/bin/whisper-stream",
+  "threads":4,
+  "step":700,
+  "length":7000,
+  "keep":300,
+  "vad_thold":0.65,
+  "paths":{
+    "live":"generated/live_transcript.txt",
+    "clean":"generated/clean_transcript.txt",
+    "queue_jsonl":"generated/sign_queue.jsonl",
+    "final_queue":"generated/final_queue.txt",
+    "logs_dir":"generated/logs"
+  },
+  "commands":{
+    "whisper":"./whisper.cpp/build/bin/whisper-stream -m ./whisper.cpp/models/ggml-tiny.en.bin -t 4 --step 700 --length 7000 --keep 300 --vad-thold 0.65 -f generated/live_transcript.txt",
+    "clean":"python3 -u clean_transcript.py --source generated/live_transcript.txt --out generated/clean_transcript.txt",
+    "gloss":"python3 -u glossify_transcript.py --source generated/clean_transcript.txt --lex lexicons.json --out generated/sign_queue.jsonl --tween-ms 100 --sentence-pause-ms 250 --rate 2.0",
+    "stream":"python3 -u stream_queue_assets.py --source generated/sign_queue.jsonl --out generated/final_queue.txt"
+  }
+}

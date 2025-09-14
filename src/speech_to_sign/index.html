@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Speech → Sign Pipeline</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      :root {
+        --bg: #0b0b0c;
+        --fg: #e7e7eb;
+        --accent: #22c55e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI,
+          Roboto;
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        grid-template-rows: auto 1fr;
+        gap: 14px;
+        min-height: 100%;
+      }
+      header {
+        grid-column: 1/-1;
+        padding: 10px 14px;
+        border-bottom: 1px solid #222;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 10px #22c55e88;
+      }
+      .cmds {
+        padding: 12px;
+        border-top: 1px solid #222;
+        background: #0f0f11;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        background: #121214;
+        border: 1px solid #222;
+        border-radius: 8px;
+        padding: 8px;
+        display: block;
+        white-space: pre-wrap;
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        padding: 14px;
+      }
+      .card {
+        background: #111;
+        border: 1px solid #222;
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .card h3 {
+        margin: 0;
+        padding: 10px 12px;
+        border-bottom: 1px solid #222;
+        font-size: 13px;
+        opacity: 0.9;
+      }
+      .log {
+        padding: 10px;
+        max-height: 240px;
+        overflow: auto;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      .playerWrap {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 14px;
+      }
+      .player {
+        width: min(70vw, 520px);
+        aspect-ratio: 1/1;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #000;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      }
+      .stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      video.hidden {
+        display: none;
+      }
+      .metaBar {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        padding: 6px 8px;
+        background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.6));
+        font-size: 12px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .btn {
+        all: unset;
+        padding: 2px 8px;
+        background: #1f2937;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .kv {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px 12px;
+        font-size: 12px;
+        border-bottom: 1px solid #222;
+      }
+      .kv span {
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <span class="dot"></span>
+        <strong>Speech → Sign Pipeline</strong>
+        <span
+          id="summary"
+          style="margin-left: auto; font-variant-numeric: tabular-nums"
+          >…</span
+        >
+      </header>
+
+      <!-- LEFT: Player + Commands -->
+      <div class="card playerWrap">
+        <div class="player">
+          <div class="kv" id="kv"></div>
+          <div class="stage" id="stage">
+            <video id="vidA" muted playsinline preload="auto"></video>
+            <video
+              id="vidB"
+              muted
+              playsinline
+              preload="auto"
+              class="hidden"
+            ></video>
+            <div class="metaBar">
+              <span id="now">—</span>
+              <div>
+                <button id="pauseBtn" class="btn">pause</button>
+                <span id="status" style="margin-left: 8px; opacity: 0.8"
+                  >idle</span
+                >
+              </div>
+            </div>
+          </div>
+          <div class="cmds">
+            <h3 style="margin: 0 0 8px 0">Commands</h3>
+            <code id="cmd_whisper"></code>
+            <code id="cmd_clean"></code>
+            <code id="cmd_gloss"></code>
+            <code id="cmd_stream"></code>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Logs -->
+      <div>
+        <div class="card">
+          <h3>whisper.log</h3>
+          <div id="log_whisper" class="log"></div>
+        </div>
+        <div class="cols">
+          <div class="card">
+            <h3>clean.log</h3>
+            <div id="log_clean" class="log"></div>
+          </div>
+          <div class="card">
+            <h3>gloss.log</h3>
+            <div id="log_gloss" class="log"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>stream.log</h3>
+          <div id="log_stream" class="log"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const RATE = 2.0;
+      const STATUS_URL = "generated/status.json";
+      const FINAL_URL = "generated/final_queue.txt";
+      const LOGS = {
+        whisper: "generated/logs/whisper.log",
+        clean: "generated/logs/clean.log",
+        gloss: "generated/logs/gloss.log",
+        stream: "generated/logs/stream.log",
+      };
+
+      let assets = [],
+        cursor = 0,
+        paused = false,
+        playing = false;
+      const active = document.getElementById("vidA");
+      const standby = document.getElementById("vidB");
+      const nowEl = document.getElementById("now");
+      const statusEl = document.getElementById("status");
+      const summaryEl = document.getElementById("summary");
+      const pauseBtn = document.getElementById("pauseBtn");
+
+      function prep(video, src) {
+        video.playbackRate = RATE;
+        if (video.src !== new URL(src, location).href) {
+          video.src = src;
+          video.load();
+        }
+      }
+      function swap() {
+        active.classList.add("hidden");
+        standby.classList.remove("hidden");
+        const tmp = active;
+        window.active = standby;
+        window.standby = tmp;
+      }
+
+      function playNext() {
+        if (paused || cursor >= assets.length) {
+          playing = false;
+          statusEl.textContent = "waiting…";
+          return;
+        }
+        const src = assets[cursor++];
+        nowEl.textContent = src.split("/").pop();
+        statusEl.textContent = `${cursor}/${assets.length}`;
+        prep(standby, src);
+        const go = () => {
+          standby.playbackRate = RATE;
+          standby.play().catch(() => {});
+          swap();
+          if (cursor < assets.length) prep(standby, assets[cursor]);
+          playing = true;
+        };
+        if (standby.readyState >= 2) go();
+        else
+          standby.oncanplay = () => {
+            standby.oncanplay = null;
+            go();
+          };
+      }
+      active.addEventListener("ended", playNext);
+      standby.addEventListener("ended", playNext);
+
+      async function pollFinal() {
+        try {
+          const t = Date.now();
+          const txt = await (
+            await fetch(FINAL_URL + "?t=" + t, { cache: "no-store" })
+          ).text();
+          const lines = txt
+            .split(/\r?\n/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (lines.length > assets.length) {
+            assets = lines;
+            if (!playing && !paused) playNext();
+            else if (cursor < assets.length) prep(standby, assets[cursor]);
+          }
+          statusEl.textContent = `${Math.min(cursor, assets.length)}/${
+            assets.length
+          }`;
+        } catch (e) {}
+        setTimeout(pollFinal, 500);
+      }
+
+      async function pollLogs() {
+        for (const [k, path] of Object.entries(LOGS)) {
+          try {
+            const el = document.getElementById("log_" + k);
+            const txt = await (
+              await fetch(path + "?t=" + Date.now(), { cache: "no-store" })
+            ).text();
+            el.textContent = txt || "(waiting…)";
+            el.scrollTop = el.scrollHeight;
+          } catch (e) {}
+        }
+        setTimeout(pollLogs, 800);
+      }
+
+      async function loadStatus() {
+        try {
+          const s = await (
+            await fetch(STATUS_URL + "?t=" + Date.now(), { cache: "no-store" })
+          ).json();
+          summaryEl.textContent = `${s.paths.live
+            .split("/")
+            .pop()} → ${s.paths.final_queue.split("/").pop()}`;
+          const kv = document.getElementById("kv");
+          kv.innerHTML = `
+      <span>model: <b>${s.model.split("/").pop()}</b></span>
+      <span>threads: <b>${s.threads}</b></span>
+      <span>step: <b>${s.step}</b></span>
+      <span>length: <b>${s.length}</b></span>
+      <span>keep: <b>${s.keep}</b></span>
+      <span>vad: <b>${s.vad_thold}</b></span>
+    `;
+          document.getElementById("cmd_whisper").textContent =
+            s.commands.whisper;
+          document.getElementById("cmd_clean").textContent = s.commands.clean;
+          document.getElementById("cmd_gloss").textContent = s.commands.gloss;
+          document.getElementById("cmd_stream").textContent = s.commands.stream;
+        } catch (e) {
+          summaryEl.textContent = "status: starting…";
+        }
+      }
+      pauseBtn.onclick = () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        if (!paused) active.src ? active.play() : playNext();
+        else {
+          active.pause();
+          standby.pause();
+        }
+      };
+
+      // init
+      active.muted = standby.muted = true;
+      active.playsInline = standby.playsInline = true;
+      active.playbackRate = standby.playbackRate = RATE;
+
+      loadStatus();
+      pollLogs();
+      pollFinal();
+    </script>
+  </body>
+</html>
