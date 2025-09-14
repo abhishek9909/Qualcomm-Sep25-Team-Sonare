@@ -1,108 +1,113 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-### --- CONFIG ---
-MODEL=./whisper.cpp/models/ggml-tiny.en.bin
-WHISPER=./whisper.cpp/build/bin/whisper-stream
-THREADS=4
-STEP=700
-LENGTH=7000
-KEEP=300
-VAD=0.65
+### CONFIG
+GEN_DIR="generated"
+LIVE="$GEN_DIR/live_transcript.txt"
+CLEAN="$GEN_DIR/clean_transcript.txt"
+QUEUE_JSONL="$GEN_DIR/sign_queue.jsonl"
+FINAL_QUEUE="$GEN_DIR/final_queue.txt"
+OUTPUT="$GEN_DIR/output.mp4"
+LEX="lexicons.json"
 
-GEN=generated
-LOGDIR="$GEN/logs"
-LEX=lexicons.json
+RATE="2.0"                # playback rate for stitching
+TWEEN_MS="100"
+SENTENCE_PAUSE_MS="250"
 
-SRC_TXT="$GEN/live_transcript.txt"
-CLEAN_TXT="$GEN/clean_transcript.txt"
-QUEUE_JSONL="$GEN/sign_queue.jsonl"
-FINAL_QUEUE="$GEN/final_queue.txt"
+CLEAN_POLL="0.10"
+CLEAN_IDLE_MS="300"
+GLOSS_POLL="0.20"
+STREAM_POLL="0.15"
 
-HTTP_PORT=8000
-DASH=index.html
-### --------------
+FRESH=0
+FROM_START=0
 
-mkdir -p "$GEN" "$LOGDIR"
-: > "$SRC_TXT"; : > "$CLEAN_TXT"; : > "$QUEUE_JSONL"; : > "$FINAL_QUEUE"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --fresh) FRESH=1; shift;;
+    --from-start) FROM_START=1; shift;;
+    -h|--help)
+      echo "Usage: $0 [--fresh] [--from-start]"
+      exit 0;;
+    *) echo "Unknown arg: $1"; exit 1;;
+  esac
+done
 
-# check deps
-[[ -x "$WHISPER" ]] || { echo "!! whisper-stream not found at $WHISPER"; exit 1; }
-[[ -f "$MODEL" ]]   || { echo "!! model not found at $MODEL"; exit 1; }
-[[ -f "$LEX"   ]]   || { echo "!! $LEX not found"; exit 1; }
-[[ -f "$DASH"  ]]   || { echo "!! $DASH not found (the dashboard HTML)"; exit 1; }
+### PRECHECKS
+need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1"; exit 1; }; }
+need python3
+need ffmpeg
+[[ -f clean_transcript.py ]]    || { echo "clean_transcript.py not found"; exit 1; }
+[[ -f glossify_transcript.py ]] || { echo "glossify_transcript.py not found"; exit 1; }
+[[ -f stream_queue_assets.py ]] || { echo "stream_queue_assets.py not found"; exit 1; }
+[[ -f stitch_queue.sh ]]        || { echo "stitch_queue.sh not found"; exit 1; }
+[[ -f "$LEX" ]]                 || { echo "Missing $LEX"; exit 1; }
 
-# write a status JSON the UI can read
-STATUS="$GEN/status.json"
-cat > "$STATUS" <<JSON
-{
-  "model":"$MODEL",
-  "whisper":"$WHISPER",
-  "threads":$THREADS,
-  "step":$STEP,
-  "length":$LENGTH,
-  "keep":$KEEP,
-  "vad_thold":$VAD,
-  "paths":{
-    "live":"$SRC_TXT",
-    "clean":"$CLEAN_TXT",
-    "queue_jsonl":"$QUEUE_JSONL",
-    "final_queue":"$FINAL_QUEUE",
-    "logs_dir":"$LOGDIR"
-  },
-  "commands":{
-    "whisper":"$WHISPER -m $MODEL -t $THREADS --step $STEP --length $LENGTH --keep $KEEP --vad-thold $VAD -f $SRC_TXT",
-    "clean":"python3 -u clean_transcript.py --source $SRC_TXT --out $CLEAN_TXT",
-    "gloss":"python3 -u glossify_transcript.py --source $CLEAN_TXT --lex $LEX --out $QUEUE_JSONL --tween-ms 100 --sentence-pause-ms 250 --rate 2.0",
-    "stream":"python3 -u stream_queue_assets.py --source $QUEUE_JSONL --out $FINAL_QUEUE"
-  }
-}
-JSON
+mkdir -p "$GEN_DIR"
+: > "$LIVE"  # ensure exists
 
-PY="python3 -u"
-WL="$LOGDIR/whisper.log"; CL="$LOGDIR/clean.log"; GL="$LOGDIR/gloss.log"; SQ="$LOGDIR/stream.log"
-: > "$WL"; : > "$CL"; : > "$GL"; : > "$SQ"
+if (( FRESH == 1 )); then
+  : > "$CLEAN"
+  : > "$QUEUE_JSONL"
+  : > "$FINAL_QUEUE"
+  : > "$OUTPUT"
+fi
 
-# launch pipeline
-stdbuf -oL -eL "$WHISPER" \
-  -m "$MODEL" -t "$THREADS" \
-  --step "$STEP" --length "$LENGTH" --keep "$KEEP" \
-  --vad-thold "$VAD" \
-  -f "$SRC_TXT" \
-  | tee -a "$WL" >/dev/null & WPID=$!
-
-$PY clean_transcript.py --source "$SRC_TXT" --out "$CLEAN_TXT" \
-  | tee -a "$CL" >/dev/null & CPID=$!
-
-$PY glossify_transcript.py --source "$CLEAN_TXT" --lex "$LEX" \
-  --out "$QUEUE_JSONL" --tween-ms 100 --sentence-pause-ms 250 --rate 2.0 \
-  | tee -a "$GL" >/dev/null & GPID=$!
-
-$PY stream_queue_assets.py --source "$QUEUE_JSONL" --out "$FINAL_QUEUE" \
-  | tee -a "$SQ" >/dev/null & SPID=$!
-
-PIDS=("$WPID" "$CPID" "$GPID" "$SPID")
-
-# serve dashboard
-( cd . && $PY -m http.server "$HTTP_PORT" >/dev/null 2>&1 ) & HPID=$!
-
-# macOS "open", else xdg-open if available
-URL="http://localhost:$HTTP_PORT/index.html"
-if command -v open >/dev/null 2>&1; then open "$URL"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"; fi
-
-echo "[pipeline] running."
-echo "  whisper pid=$WPID  log=$WL"
-echo "  clean   pid=$CPID  log=$CL"
-echo "  gloss   pid=$GPID  log=$GL"
-echo "  stream  pid=$SPID  log=$SQ"
-echo "  server  pid=$HPID  $URL"
-echo "Press Ctrl+C to stop."
-
+### CLEANUP & FINAL STITCH (runs once at end)
+pids=()
 cleanup() {
-  echo; echo "[pipeline] stopping…"
-  for p in "${PIDS[@]}" "$HPID"; do kill "$p" 2>/dev/null || true; done
-  wait || true
-  echo "[pipeline] done."
+  echo; echo "[run_all] stopping…"
+  for pid in "${pids[@]:-}"; do
+    kill "$pid" 2>/dev/null || true
+  done
+  pkill -P $$ 2>/dev/null || true
+
+  # Final one-shot stitch
+  if [[ -s "$FINAL_QUEUE" ]]; then
+    echo "[run_all] stitching final video…"
+    ./stitch_queue.sh "$FINAL_QUEUE" "$OUTPUT" "$RATE" | sed -u 's/^/[stitch] /'
+  else
+    echo "[run_all] final_queue is empty; skipping stitch."
+  fi
 }
-trap cleanup INT TERM
+trap cleanup EXIT INT TERM
+
+### START STAGES
+echo "[run_all] live  -> $LIVE"
+echo "[run_all] clean -> $CLEAN"
+echo "[run_all] queue -> $QUEUE_JSONL"
+echo "[run_all] final -> $FINAL_QUEUE"
+echo "[run_all] out   -> $OUTPUT"
+
+# 1) live -> clean
+clean_cmd=(
+  python3 clean_transcript.py
+  --source "$LIVE"
+  --out "$CLEAN"
+  --poll "$CLEAN_POLL"
+  --idle-ms "$CLEAN_IDLE_MS"
+)
+(( FROM_START == 1 )) && clean_cmd+=(--from-start)
+"${clean_cmd[@]}" | sed -u 's/^/[clean] /' &
+pids+=($!)
+
+# 2) clean -> sign_queue
+python3 glossify_transcript.py \
+  --source "$CLEAN" \
+  --lex "$LEX" \
+  --out "$QUEUE_JSONL" \
+  --poll "$GLOSS_POLL" \
+  --tween-ms "$TWEEN_MS" \
+  --sentence-pause-ms "$SENTENCE_PAUSE_MS" \
+  --rate "$RATE" | sed -u 's/^/[gloss] /' &
+pids+=($!)
+
+# 3) sign_queue -> final_queue
+python3 stream_queue_assets.py \
+  --source "$QUEUE_JSONL" \
+  --out "$FINAL_QUEUE" \
+  --poll "$STREAM_POLL" | sed -u 's/^/[stream] /' &
+pids+=($!)
+
+# Run until you Ctrl-C; then cleanup() stitches once.
 wait
